@@ -137,7 +137,7 @@ def create_app(
     providers: Optional[Tuple[Provider, Provider]] = None
 ) -> FastAPI:
     if settings is None:
-        settings = Settings()
+        settings = load_settings_from_env()
 
     app = FastAPI(lifespan=lifespan)
     app.state.settings = settings
@@ -272,4 +272,3 @@ def create_app(
 
     return app
 
-app = create_app()

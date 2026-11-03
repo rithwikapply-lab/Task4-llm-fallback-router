@@ -45,9 +45,10 @@ class HttpProvider:
             payload.update(request.extra)
 
         headers = {
-            'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json'
         }
+        if self.api_key:
+            headers['Authorization'] = f'Bearer {self.api_key}' 
 
         url = self.base_url
         if not url.endswith('/chat/completions'):
