@@ -216,6 +216,8 @@ async def test_success_body_and_headers(app_fixture):
     assert res2.status_code == 200
     assert res2.json() == p2.body
     assert res2.headers["x-gateway-fallback"] == "true"
+    usage_res = await client.get("/v1/usage", headers=auth)
+    assert usage_res.json()["used"] == 77  # 42 from primary earlier + 35 from secondary, not both
 
 @pytest.mark.asyncio
 async def test_usage_endpoint(app_fixture):

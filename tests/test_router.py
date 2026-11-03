@@ -60,6 +60,7 @@ async def test_primary_timeout_fallback(default_config):
     assert res.provider_name == "secondary"
     assert res.fallback_used
     assert elapsed < 0.35  # Should not wait for p1's 0.5s
+    assert p1.cancelled is True
     await router.aclose()
 
 @pytest.mark.asyncio
