@@ -75,12 +75,16 @@ The system does not rely on transient in-memory locks. Uncommitted reservations 
 
 ### Failover Rules & Task Lifecycle
 ModelRouter dispatches requests first to the primary provider with a deadline (`primary_timeout_ms`).
-Failover to the secondary provider is triggered if:
-- Primary request times out.
-- Primary encounters network connection errors.
-- Primary returns HTTP status codes: `429`, `500`, `502`, `503`, or `504`.
-
-Client-error statuses (`400`, `422`) do not trigger failover and immediately surface as `invalid_request`.
+Failover to the secondary provider is evaluated using explicit rules:
+- **Failover conditions**:
+  - Primary request times out (`timeout`).
+  - Primary encounters network connection errors (`connection_error`).
+  - Primary returns an HTTP status code in `failover_statuses`: `429`, `500`, `502`, `503`, or `504`.
+  - Primary returns a `2xx` HTTP status code but with an unreadable or missing response body (`body is None`).
+- **Client-error conditions (no failover)**:
+  - Primary returns HTTP status `400` or `422`, which immediately raises `invalid_request` (HTTP 400).
+- **Unknown outcomes (no failover)**:
+  - Any other unknown outcome (e.g. redirect statuses like `302`, upstream authentication failures like `401`/`403`/`404`, unsupported statuses like `501`, or unhandled provider exceptions) immediately raises `upstream_unavailable` (HTTP 502) without failing over to the secondary provider.
 
 #### Why `asyncio.wait` + `cancel()` + Abandoned Set instead of `wait_for`
 Using `asyncio.wait_for` introduces race conditions near deadlines where tasks completing near timeout boundaries can trigger unhandled cancellation exceptions. Additionally, if an upstream provider does not immediately yield upon receiving `CancelledError`, `wait_for` will block caller execution.
@@ -144,6 +148,8 @@ python3 -m llm_router.admin list-tenants
 ```
 
 ### 3. Running the Server
+The application uses the `create_app(settings=None)` factory, which loads configuration from environment variables via `load_settings_from_env()` when settings are not explicitly provided. Note that the module-level `app` instance has been removed; run the server using uvicorn's `--factory` flag:
+
 ```bash
 uvicorn llm_router.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
@@ -184,6 +190,7 @@ The test suite covers:
 
 ## Limitations
 
+- **Local Test Upstreams**: The end-to-end integration test uses local fake HTTP servers (built on Python's standard library `http.server`), not live commercial provider endpoints.
 - **Single Provider Pair**: Supports a primary and secondary provider pair; arbitrary provider DAGs or dynamic tiers are not supported.
 - **No Streaming**: Responses are buffered and returned in full; `stream: true` requests are rejected with status 400.
 - **Approximate Token Estimation**: Pre-request reservation relies on `ceil(len(text) / 4)` heuristics.
