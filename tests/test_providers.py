@@ -15,7 +15,7 @@ async def test_http_provider_success():
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
-        provider = HttpProvider("test-p", "https://api.openai.com/v1", "test-key", "gpt-4o", client=client)
+        provider = HttpProvider("test-p", "https://api.example.com/v1", "test-key", "gpt-4o", client=client)
         req = ProviderRequest(messages=[{"role": "user", "content": "hi"}], max_tokens=100)
         res = await provider.complete(req)
         assert res.status == 200
@@ -29,7 +29,7 @@ async def test_http_provider_connection_error():
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
-        provider = HttpProvider("test-p", "https://api.openai.com/v1", "test-key", "gpt-4o", client=client)
+        provider = HttpProvider("test-p", "https://api.example.com/v1", "test-key", "gpt-4o", client=client)
         req = ProviderRequest(messages=[{"role": "user", "content": "hi"}], max_tokens=100)
         with pytest.raises(ProviderConnectionError):
             await provider.complete(req)
