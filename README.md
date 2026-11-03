@@ -49,7 +49,7 @@ A high-performance rate-limiting and model-fallback gateway service for Large La
 The limiter manages token capacity using an exact transaction log stored in SQLite:
 - `reserve(tenant_id, estimated_tokens, limit)`: Runs inside an atomic `BEGIN IMMEDIATE` transaction. Opportunistically deletes expired usage rows (`ts_ms <= now - window_ms`). Calculates current tenant consumption within the window. If `used + estimated_tokens <= limit`, it inserts a reservation row with `state = 'reserved'`.
 - `commit(reservation, actual_tokens)`: Reconciles token usage once the upstream provider returns. Updates the reserved row with the actual token count from provider usage metrics and sets `state = 'committed'`. If the upstream response lacks usage statistics, fallback heuristic token estimation is applied.
-- `release(reservation)`: Triggered on upstream failure, timeout, or client cancellation. Deletes the `'reserved\` entry, refunding reserved capacity.
+- `release(reservation)`: Triggered on upstream failure, timeout, or client cancellation. Deletes the `'reserved'` entry, refunding reserved capacity.
 
 ### Boundary Semantics
 The time window operates with strict inequality on active rows:
@@ -133,7 +133,7 @@ Internal details, provider URLs, model names, raw database errors, file paths, a
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e '\.[dev]'
+pip install -e '.[dev]'
 ```
 
 ### 2. Tenant Management CLI
