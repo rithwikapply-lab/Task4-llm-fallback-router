@@ -122,7 +122,7 @@ class ModelRouter:
         elif prim_attempt.status and 400 <= prim_attempt.status < 500:
             raise GatewayError("upstream_unavailable", 502)
         else:
-            should_failover = True
+            should_failover = False
 
         if not should_failover:
             # If for some reason not failing over and not handled above
