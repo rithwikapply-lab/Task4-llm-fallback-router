@@ -41,7 +41,7 @@ MUTATIONS = [
         ("DEFAULT_FAILOVER_STATUSES = {429, 500, 502, 503, 504}", "DEFAULT_FAILOVER_STATUSES = {500, 502, 503, 504}"),
     ]),
     (9, "remove failover on timeout", "src/llm_router/router.py", [
-        ('if prim_attempt.outcome in ("timeout", "connection_error", "error"):', 'if prim_attempt.outcome in ("connection_error", "error"):'),
+        ('if prim_attempt.outcome in ("timeout", "connection_error"):', 'if prim_attempt.outcome in ("connection_error",):'),
     ]),
     (10, "timeout of 3000 seconds instead of 3000 ms", "src/llm_router/router.py", [
         ("deadline_s = timeout_ms / 1000.0", "deadline_s = float(timeout_ms)"),

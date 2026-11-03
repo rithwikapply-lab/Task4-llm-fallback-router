@@ -237,3 +237,90 @@ async def test_deadline_race_property():
         assert len(unhandled_exceptions) == 0
     finally:
         loop.set_exception_handler(old_handler)
+
+
+@pytest.mark.asyncio
+async def test_primary_2xx_unreadable_body_fallback(default_config):
+    p1 = FakeProvider(name="primary", status=200, body=None)
+    p2 = FakeProvider(name="secondary", status=200, body={"choices": ["from secondary"]})
+    router = ModelRouter(p1, p2, default_config)
+
+    req = ProviderRequest(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
+    res = await router.route(req)
+
+    assert res.provider_name == "secondary"
+    assert res.fallback_used is True
+    assert res.body == {"choices": ["from secondary"]}
+    assert p1.call_count == 1
+    assert p2.call_count == 1
+    await router.aclose()
+
+
+@pytest.mark.parametrize("st", [429, 500, 502, 503, 504])
+@pytest.mark.asyncio
+async def test_explicit_failover_statuses(default_config, st):
+    p1 = FakeProvider(name="primary", status=st, body={"error": f"fail_{st}"})
+    p2 = FakeProvider(name="secondary", status=200, body={"choices": [f"fallback_{st}"]})
+    router = ModelRouter(p1, p2, default_config)
+
+    req = ProviderRequest(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
+    res = await router.route(req)
+
+    assert res.provider_name == "secondary"
+    assert res.fallback_used is True
+    assert res.body == {"choices": [f"fallback_{st}"]}
+    assert p1.call_count == 1
+    assert p2.call_count == 1
+    await router.aclose()
+
+
+@pytest.mark.parametrize("unknown_st", [301, 302, 401, 403, 404, 501])
+@pytest.mark.asyncio
+async def test_unknown_statuses_no_failover(default_config, unknown_st):
+    p1 = FakeProvider(name="primary", status=unknown_st, body={"msg": "unknown"})
+    p2 = FakeProvider(name="secondary", status=200, body={"choices": ["sec"]})
+    router = ModelRouter(p1, p2, default_config)
+
+    req = ProviderRequest(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
+    with pytest.raises(GatewayError) as exc:
+        await router.route(req)
+
+    assert exc.value.http_status == 502
+    assert exc.value.code == "upstream_unavailable"
+    assert p1.call_count == 1
+    assert p2.call_count == 0
+    await router.aclose()
+
+
+@pytest.mark.asyncio
+async def test_primary_unexpected_exception_no_failover(default_config):
+    p1 = FakeProvider(name="primary", exception=RuntimeError("catastrophic failure"))
+    p2 = FakeProvider(name="secondary", status=200, body={"choices": ["sec"]})
+    router = ModelRouter(p1, p2, default_config)
+
+    req = ProviderRequest(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
+    with pytest.raises(GatewayError) as exc:
+        await router.route(req)
+
+    assert exc.value.http_status == 502
+    assert exc.value.code == "upstream_unavailable"
+    assert p1.call_count == 1
+    assert p2.call_count == 0
+    await router.aclose()
+
+
+@pytest.mark.asyncio
+async def test_primary_422_no_failover(default_config):
+    p1 = FakeProvider(name="primary", status=422, body={"detail": "unprocessable"})
+    p2 = FakeProvider(name="secondary", status=200, body={"choices": ["sec"]})
+    router = ModelRouter(p1, p2, default_config)
+
+    req = ProviderRequest(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
+    with pytest.raises(GatewayError) as exc:
+        await router.route(req)
+
+    assert exc.value.http_status == 400
+    assert exc.value.code == "invalid_request"
+    assert p1.call_count == 1
+    assert p2.call_count == 0
+    await router.aclose()

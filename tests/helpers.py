@@ -2,12 +2,14 @@ import asyncio
 from typing import Optional, Dict, Any, List
 from llm_router.providers import ProviderRequest, ProviderResult, ProviderConnectionError
 
+_DEFAULT_BODY = object()
+
 class FakeProvider:
     def __init__(
         self,
         name: str = "fake",
         status: int = 200,
-        body: Optional[Dict[str, Any]] = None,
+        body: Any = _DEFAULT_BODY,
         delay: float = 0.0,
         exception: Optional[Exception] = None,
         retry_after_s: Optional[float] = None,
@@ -15,10 +17,13 @@ class FakeProvider:
     ):
         self.name = name
         self.status = status
-        self.body = body if body is not None else {
-            "choices": [{"message": {"role": "assistant", "content": "hello"}}],
-            "usage": {"total_tokens": 10}
-        }
+        if body is _DEFAULT_BODY:
+            self.body = {
+                "choices": [{"message": {"role": "assistant", "content": "hello"}}],
+                "usage": {"total_tokens": 10}
+            }
+        else:
+            self.body = body
         self.delay = delay
         self.exception = exception
         self.retry_after_s = retry_after_s

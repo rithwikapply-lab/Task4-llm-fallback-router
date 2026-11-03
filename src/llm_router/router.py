@@ -111,21 +111,25 @@ class ModelRouter:
                 fallback_used=False
             )
 
-        # Check if primary should failover
+        # Explicit failover rules:
+        # 1. timeout
+        # 2. connection error
+        # 3. HTTP status in failover_statuses (429, 500, 502, 503, 504)
+        # 4. 2xx with unreadable body (body is None)
+        # Any other unknown outcome raises upstream_unavailable without failover.
         should_failover = False
-        if prim_attempt.outcome in ("timeout", "connection_error", "error"):
+        if prim_attempt.outcome in ("timeout", "connection_error"):
             should_failover = True
         elif prim_attempt.status in self.failover_statuses:
             should_failover = True
+        elif (prim_attempt.status is not None and 200 <= prim_attempt.status < 300) and (prim_result is None or prim_result.body is None):
+            should_failover = True
         elif prim_attempt.status in (400, 422):
             raise GatewayError("invalid_request", 400)
-        elif prim_attempt.status and 400 <= prim_attempt.status < 500:
-            raise GatewayError("upstream_unavailable", 502)
         else:
-            should_failover = False
+            raise GatewayError("upstream_unavailable", 502)
 
         if not should_failover:
-            # If for some reason not failing over and not handled above
             raise GatewayError("upstream_unavailable", 502)
 
         # 2. Try Secondary
