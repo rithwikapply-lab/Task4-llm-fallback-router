@@ -13,23 +13,29 @@ MUTATIONS = [
         ("ts_ms > ?", "ts_ms >= ?"),
     ]),
     (2, "never evict expired rows", "src/llm_router/limiter.py", [
-        ("DELETE FROM usage WHERE tenant_id = ? AND ts_ms <= ?;", "SELECT 1 FROM usage WHERE tenant_id = ?;"),
-        ("DELETE FROM usage WHERE ts_ms <= ?;", "SELECT 1 FROM usage;"),
+        ("DELETE FROM usage WHERE tenant_id = ? AND ts_ms <= ?;", "DELETE FROM usage WHERE tenant_id = ? AND ts_ms <= ? AND 0;"),
+        ("DELETE FROM usage WHERE ts_ms <= ?;", "DELETE FROM usage WHERE ts_ms <= ? AND 0;"),
     ]),
     (3, "usage sum includes other tenants", "src/llm_router/limiter.py", [
-        ("WHERE tenant_id = ? AND ts_ms > ?", "WHERE ts_ms > ? --"),
+        ("WHERE tenant_id = ? AND ts_ms > ?", "WHERE ? IS NOT NULL AND ts_ms > ?"),
     ]),
     (4, "commit does not reconcile actual tokens", "src/llm_router/service.py", [
         ("await self.limiter.commit(reservation, tokens_actual)", "await self.limiter.commit(reservation, tokens_reserved)"),
     ]),
     (5, "release does not refund", "src/llm_router/limiter.py", [
-        ("DELETE FROM usage WHERE id = ? AND state = 'reserved';", "SELECT 1 FROM usage WHERE id = ?;"),
+        ("DELETE FROM usage WHERE id = ? AND state = 'reserved';", "DELETE FROM usage WHERE id = ? AND state = 'reserved' AND 0;"),
     ]),
     (6, "do not cancel the timed-out provider task", "src/llm_router/router.py", [
-        ("task.cancel()", "pass"),
+        ("""        if task not in done:
+            task.cancel()""",
+         """        if task not in done:
+            pass"""),
     ]),
     (7, "await the provider after the timeout", "src/llm_router/router.py", [
-        ("task.cancel()", "await task"),
+        ("""        if task not in done:
+            task.cancel()""",
+         """        if task not in done:
+            await task"""),
     ]),
     (8, "remove failover on 429", "src/llm_router/router.py", [
         ("DEFAULT_FAILOVER_STATUSES = {429, 500, 502, 503, 504}", "DEFAULT_FAILOVER_STATUSES = {500, 502, 503, 504}"),
@@ -105,6 +111,23 @@ def run_mutation(num, description, target_rel_file, replacements):
         env=env
     )
 
+    is_invalid = False
+    invalid_reason = ""
+    if proc.returncode != 0:
+        tb_proc = subprocess.run(
+            [VENV_PYTEST, "-q", "--tb=line"],
+            cwd=mut_dir,
+            capture_output=True,
+            text=True,
+            env=env
+        )
+        combined_tb = (tb_proc.stdout + "\n" + tb_proc.stderr).lower()
+        for kw in ["programmingerror", "bindings", "syntaxerror", "importerror"]:
+            if kw in combined_tb:
+                is_invalid = True
+                invalid_reason = kw
+                break
+
     # Clean up copy immediately
     shutil.rmtree(mut_dir)
 
@@ -118,12 +141,24 @@ def run_mutation(num, description, target_rel_file, replacements):
         elif "failed" in l or "passed" in l or "error" in l:
             summary_line = l
 
-    killed = proc.returncode != 0
+    if is_invalid:
+        status = "INVALID"
+        killed = False
+    elif proc.returncode != 0:
+        status = "KILLED"
+        killed = True
+    else:
+        status = "SURVIVED"
+        killed = False
+
     return {
         "num": num,
         "description": description,
         "failing_tests": failing_tests,
+        "failing_count": len(failing_tests),
         "summary": summary_line,
+        "status": status,
+        "invalid_reason": invalid_reason,
         "killed": killed
     }
 
@@ -133,18 +168,17 @@ def main():
     for num, desc, rel_file, reps in MUTATIONS:
         r = run_mutation(num, desc, rel_file, reps)
         results.append(r)
-        status = "KILLED" if r["killed"] else "SURVIVED"
         failing_names = [t.split("::")[-1] for t in r["failing_tests"]]
         failing_str = ", ".join(failing_names[:3]) + (f" (+{len(failing_names)-3} more)" if len(failing_names) > 3 else "")
-        print(f"Mutation {r['num']:>2}: {r['description']:<55} | {status} | {failing_str} | {r['summary']}")
+        print(f"Mutation {r['num']:>2}: {r['description']:<55} | {r['status']} ({r['failing_count']} failed) | {failing_str} | {r['summary']}")
 
     print("\n=== Mutation Table ===")
-    print(f"| {'#':<2} | {'Breakage':<55} | {'Killed':<6} | {'Failing Tests'} |")
-    print("|----|---------------------------------------------------------|--------|--------------------------------------------------|")
+    print(f"| {'#':<2} | {'Breakage':<55} | {'Status':<7} | {'Failures':<8} | {'Failing Tests'} |")
+    print("|----|---------------------------------------------------------|---------|----------|--------------------------------------------------|")
     for r in results:
         failing_names = [t.split("::")[-1] for t in r["failing_tests"]]
         failing_str = ", ".join(failing_names[:2]) + (f" (+{len(failing_names)-2} more)" if len(failing_names) > 2 else "")
-        print(f"| {r['num']:<2} | {r['description']:<55} | {'YES' if r['killed'] else 'NO':<6} | {failing_str} |")
+        print(f"| {r['num']:<2} | {r['description']:<55} | {r['status']:<7} | {r['failing_count']:<8} | {failing_str} |")
 
 if __name__ == "__main__":
     main()
