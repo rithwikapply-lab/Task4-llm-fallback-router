@@ -47,3 +47,29 @@ class FakeProvider:
             body=self.body,
             retry_after_s=self.retry_after_s
         )
+
+
+def mp_reserve_worker(db_path: str, tenant_id: str, limit: int, attempts: int, tokens: int, out_queue):
+    import asyncio
+    from llm_router.storage import SqliteStore
+    from llm_router.clock import SystemClock
+    from llm_router.limiter import SlidingWindowLimiter, RateLimited
+
+    async def _run():
+        store = SqliteStore(db_path)
+        await store.init()
+        clock = SystemClock()
+        limiter = SlidingWindowLimiter(store, clock, default_limit=limit)
+        admitted = 0
+        rate_limited = 0
+        for _ in range(attempts):
+            try:
+                await limiter.reserve(tenant_id, tokens, limit=limit)
+                admitted += 1
+            except RateLimited:
+                rate_limited += 1
+        await store.aclose()
+        return admitted, rate_limited
+
+    res = asyncio.run(_run())
+    out_queue.put(res)
