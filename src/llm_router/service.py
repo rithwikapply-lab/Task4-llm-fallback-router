@@ -56,8 +56,14 @@ class GatewayService:
 
             # Strip Bearer if present
             clean_key = api_key.strip()
-            if clean_key.lower().startswith("bearer "):
-                clean_key = clean_key[7:].strip()
+            if clean_key.lower().startswith("bearer"):
+                remainder = clean_key[6:]
+                if not remainder or remainder[0].isspace():
+                    clean_key = remainder.strip()
+
+            if not clean_key:
+                outcome = "unauthorized"
+                raise GatewayError("unauthorized", 401)
 
             tenant = await get_tenant_by_key(self.store, clean_key)
             if not tenant:
@@ -165,6 +171,9 @@ class GatewayService:
 
             return 200, resp_body, headers
 
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
         except GatewayError as ge:
             outcome = ge.code
             raise
@@ -179,7 +188,7 @@ class GatewayService:
             if reservation is not None and not committed:
                 try:
                     await asyncio.shield(self.limiter.release(reservation))
-                except Exception:
+                except (Exception, asyncio.CancelledError):
                     pass
 
             total_ms = (time.perf_counter() - start_time) * 1000.0
